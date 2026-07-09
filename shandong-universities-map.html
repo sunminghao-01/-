@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>山东省高校地图 — 公办本科 & 公办专科（含各校区）</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; background: #1a1a2e; height: 100vh; display: flex; flex-direction: column; }
+
+        .header { background: linear-gradient(135deg, #0f3460 0%, #16213e 50%, #0f3460 100%); color: #fff; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.3); z-index: 1000; }
+        .header h1 { font-size: 22px; font-weight: 700; letter-spacing: 1px; white-space: nowrap; }
+        .header-stats { display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
+        .header-stats span { background: rgba(255,255,255,0.12); padding: 4px 12px; border-radius: 20px; white-space: nowrap; }
+        .header-stats .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+        .dot-benke  { background: #3388ff; } .dot-zhuanke { background: #2ecc71; } .dot-zhongde { background: #e74c3c; }
+
+        .main-container { flex: 1; display: flex; overflow: hidden; position: relative; }
+        .sidebar { width: 360px; min-width: 360px; background: #16213e; color: #e0e0e0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #1a1a3e; transition: margin-left 0.3s; }
+        .sidebar.collapsed { margin-left: -360px; min-width: 0; width: 0; }
+        .sidebar-toggle { position: absolute; left: 360px; top: 50%; transform: translateY(-50%); z-index: 999; background: #16213e; color: #fff; border: 1px solid #1a1a3e; border-left: none; border-radius: 0 8px 8px 0; padding: 12px 6px; cursor: pointer; font-size: 16px; transition: left 0.3s; }
+        .sidebar.collapsed + .sidebar-toggle { left: 0; }
+        .sidebar-section { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .sidebar-section h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #7f8fa6; margin-bottom: 10px; }
+        .search-box { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.07); color: #fff; font-size: 14px; outline: none; transition: border-color 0.2s; }
+        .search-box::placeholder { color: #7f8fa6; } .search-box:focus { border-color: #3388ff; }
+        .city-filters { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; }
+        .city-filters::-webkit-scrollbar { width: 4px; } .city-filters::-webkit-scrollbar-thumb { background: #2a2a4e; border-radius: 2px; }
+        .city-chip { padding: 5px 10px; border-radius: 16px; font-size: 12px; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #ccc; transition: all 0.2s; white-space: nowrap; }
+        .city-chip:hover { border-color: #3388ff; color: #fff; } .city-chip.active { background: #3388ff; border-color: #3388ff; color: #fff; }
+        .type-filters { display: flex; gap: 8px; }
+        .type-chip { padding: 6px 14px; border-radius: 16px; font-size: 12px; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #ccc; transition: all 0.2s; }
+        .type-chip:hover { opacity: 0.8; } .type-chip.active-benke { background: #3388ff; border-color: #3388ff; color: #fff; } .type-chip.active-zhuanke { background: #2ecc71; border-color: #2ecc71; color: #fff; }
+        .result-list { flex: 1; overflow-y: auto; padding: 8px; }
+        .result-list::-webkit-scrollbar { width: 4px; } .result-list::-webkit-scrollbar-thumb { background: #2a2a4e; border-radius: 2px; }
+        .result-item { padding: 10px 12px; border-radius: 8px; margin-bottom: 4px; cursor: pointer; transition: background 0.2s; border-left: 3px solid transparent; display: flex; align-items: center; gap: 8px; }
+        .result-item:hover { background: rgba(255,255,255,0.06); }
+        .result-item .badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
+        .badge-benke   { background: #3388ff; color: #fff; } .badge-zhuanke { background: #2ecc71; color: #fff; } .badge-zhongde { background: #e74c3c; color: #fff; }
+        .result-item .info { flex: 1; min-width: 0; }
+        .result-item .name { font-size: 13px; font-weight: 500; color: #e8e8e8; }
+        .result-item .city { font-size: 11px; color: #7f8fa6; margin-top: 2px; }
+        .no-results { text-align: center; padding: 40px 20px; color: #7f8fa6; font-size: 14px; }
+
+        .map-container { flex: 1; position: relative; } #map { width: 100%; height: 100%; }
+        .leaflet-popup-content-wrapper { border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+        .leaflet-popup-content { margin: 12px 16px; font-size: 14px; line-height: 1.6; }
+        .popup-name { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+        .popup-city { color: #666; font-size: 12px; }
+        .popup-type { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-top: 4px; color: #fff; }
+        .popup-type-benke   { background: #3388ff; } .popup-type-zhuanke { background: #2ecc71; } .popup-type-zhongde { background: #e74c3c; }
+
+        .legend-overlay { position: absolute; bottom: 30px; right: 30px; background: rgba(22,33,62,0.95); color: #e0e0e0; padding: 14px 18px; border-radius: 12px; font-size: 12px; z-index: 999; box-shadow: 0 2px 12px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); }
+        .legend-overlay h4 { margin-bottom: 8px; font-size: 13px; color: #aab; }
+        .legend-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+
+        @media (max-width: 768px) { .sidebar { width: 280px; min-width: 280px; } .sidebar.collapsed { margin-left: -280px; min-width: 0; width: 0; } .sidebar-toggle { left: 280px; } .sidebar.collapsed + .sidebar-toggle { left: 0; } .header h1 { font-size: 17px; } .header-stats { font-size: 11px; gap: 8px; } }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>🗺️ 山东省高校地图 <small style="font-size:12px;font-weight:400;opacity:0.7;">— 公办本科 & 公办专科（含各校区）</small></h1>
+    <div class="header-stats">
+        <span><span class="dot dot-benke"></span>本科: <strong id="count-benke">-</strong></span>
+        <span><span class="dot dot-zhuanke"></span>专科: <strong id="count-zhuanke">-</strong></span>
+        <span><span class="dot dot-zhongde"></span>校区标记: <strong id="count-total">-</strong></span>
+    </div>
+</div>
+
+<div class="main-container">
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-section"><h3>🔍 搜索</h3><input type="text" class="search-box" id="searchInput" placeholder="输入学校名称、校区或城市…"></div>
+    <div class="sidebar-section"><h3>🏷️ 类型</h3><div class="type-filters" id="typeFilters"><span class="type-chip active-benke" data-type="benke">🏫 公办本科</span><span class="type-chip active-zhuanke" data-type="zhuanke">🏫 公办专科</span></div></div>
+    <div class="sidebar-section"><h3>📍 城市 <small style="color:#7f8fa6;font-weight:400;">(<a href="#" id="clearCity" style="color:#3388ff;text-decoration:none;">清除</a>)</small></h3><div class="city-filters" id="cityFilters"></div></div>
+    <div class="result-list" id="resultList"></div>
+</aside>
+<button class="sidebar-toggle" id="sidebarToggle" title="展开/收起侧栏">◀</button>
+<div class="map-container">
+    <div id="map"></div>
+    <div class="legend-overlay"><h4>图例</h4><div class="legend-row"><span class="legend-dot" style="background:#3388ff"></span> 公办本科</div><div class="legend-row"><span class="legend-dot" style="background:#2ecc71"></span> 公办专科</div><div class="legend-row"><span class="legend-dot" style="background:#e74c3c"></span> 分校区（高亮）</div></div>
+</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+(function() {
+// ============================================================
+// DATA — 山东省所有公办本科、公办专科院校 及 各个校区
+// isMain: true=主校区, false=分校区
+// type: "本科" | "专科" | "校区"
+// ============================================================
+const U = [
+
+// ==================== 济南市 - 公办本科 ====================
+// --- 山东大学 (1主+5分+2跨城) ---
+{ name:"山东大学", campus:"中心校区", city:"济南", type:"本科", isMain:true,  lat:36.6738, lng:117.0556, note:"985/211/双一流 · 主校区", addr:"济南市历城区山大南路27号" },
+{ name:"山东大学", campus:"趵突泉校区", city:"济南", type:"本科", isMain:false, lat:36.6500, lng:117.0200, note:"齐鲁医学部", addr:"济南市历下区文化西路44号" },
+{ name:"山东大学", campus:"千佛山校区", city:"济南", type:"本科", isMain:false, lat:36.6520, lng:117.0300, note:"工科校区", addr:"济南市历下区经十路17923号" },
+{ name:"山东大学", campus:"洪家楼校区", city:"济南", type:"本科", isMain:false, lat:36.6850, lng:117.0620, note:"法学/外语", addr:"济南市历城区洪家楼5号" },
+{ name:"山东大学", campus:"软件园校区", city:"济南", type:"本科", isMain:false, lat:36.6760, lng:117.1400, note:"软件/计算机", addr:"济南市高新区舜华路1500号" },
+{ name:"山东大学", campus:"兴隆山校区", city:"济南", type:"本科", isMain:false, lat:36.6200, lng:117.0400, note:"工科新生", addr:"济南市市中区二环东路12550号" },
+
+// --- 济南大学 ---
+{ name:"济南大学", campus:"主校区", city:"济南", type:"本科", isMain:true,  lat:36.6148, lng:116.9658, note:"省属重点", addr:"济南市市中区南辛庄西路336号" },
+{ name:"济南大学", campus:"舜耕校区", city:"济南", type:"本科", isMain:false, lat:36.6280, lng:117.0180, note:"—", addr:"济南市市中区舜耕路13号" },
+
+// --- 山东建筑大学 ---
+{ name:"山东建筑大学", campus:"主校区", city:"济南", type:"本科", isMain:true,  lat:36.6820, lng:117.1835, note:"建筑类特色", addr:"济南市历城区凤鸣路1000号" },
+{ name:"山东建筑大学", campus:"和平校区", city:"济南", type:"本科", isMain:false, lat:36.6600, lng:117.0550, note:"—", addr:"济南市历下区和平路" },
+
+// --- 齐鲁工业大学 ---
+{ name:"齐鲁工业大学", campus:"长清校区", city:"济南", type:"本科", isMain:true,  lat:36.5560, lng:116.7650, note:"主校区", addr:"济南市长清区大学路3501号" },
+{ name:"齐鲁工业大学", campus:"历城校区", city:"济南", type:"本科", isMain:false, lat:36.7000, lng:117.1100, note:"—", addr:"济南市历城区" },
+
+// --- 山东师范大学 ---
+{ name:"山东师范大学", campus:"千佛山校区", city:"济南", type:"本科", isMain:true,  lat:36.5462, lng:116.8380, note:"校本部", addr:"济南市历下区文化东路88号" },
+{ name:"山东师范大学", campus:"长清湖校区", city:"济南", type:"本科", isMain:false, lat:36.5550, lng:116.8300, note:"新校区", addr:"济南市长清区大学路1号" },
+
+// --- 山东第一医科大学 ---
+{ name:"山东第一医科大学", campus:"济南主校区", city:"济南", type:"本科", isMain:true,  lat:36.5480, lng:116.8050, note:"医科类", addr:"济南市槐荫区青岛路6699号" },
+
+// --- 山东中医药大学 ---
+{ name:"山东中医药大学", campus:"长清校区", city:"济南", type:"本科", isMain:true,  lat:36.5700, lng:116.7550, note:"中医类", addr:"济南市长清区大学路4655号" },
+
+// --- 山东财经大学 ---
+{ name:"山东财经大学", campus:"舜耕校区", city:"济南", type:"本科", isMain:true,  lat:36.6550, lng:117.0820, note:"主校区", addr:"济南市历下区二环东路7366号" },
+{ name:"山东财经大学", campus:"燕山校区", city:"济南", type:"本科", isMain:false, lat:36.6480, lng:117.0680, note:"—", addr:"济南市历下区二环东路" },
+{ name:"山东财经大学", campus:"圣井校区", city:"济南", type:"本科", isMain:false, lat:36.6000, lng:117.4200, note:"新校区", addr:"济南市章丘区经十东路18602号" },
+
+// --- 山东交通学院 ---
+{ name:"山东交通学院", campus:"长清校区", city:"济南", type:"本科", isMain:true,  lat:36.5555, lng:116.8025, note:"主校区", addr:"济南市长清区海棠路5001号" },
+{ name:"山东交通学院", campus:"无影山校区", city:"济南", type:"本科", isMain:false, lat:36.6800, lng:116.9800, note:"—", addr:"济南市天桥区交校路5号" },
+
+// --- 山东艺术学院 ---
+{ name:"山东艺术学院", campus:"长清校区", city:"济南", type:"本科", isMain:true,  lat:36.5520, lng:116.8240, note:"主校区", addr:"济南市长清区紫薇路6000号" },
+{ name:"山东艺术学院", campus:"文东校区", city:"济南", type:"本科", isMain:false, lat:36.6560, lng:117.0400, note:"—", addr:"济南市历下区文化东路91号" },
+
+// --- 山东工艺美术学院 ---
+{ name:"山东工艺美术学院", campus:"长清校区", city:"济南", type:"本科", isMain:true,  lat:36.5550, lng:116.8180, note:"艺术类", addr:"济南市长清区大学路1255号" },
+
+// --- 山东警察学院 ---
+{ name:"山东警察学院", campus:"章丘校区", city:"济南", type:"本科", isMain:true,  lat:36.6820, lng:117.1150, note:"公安类", addr:"济南市章丘区章莱路2555号" },
+{ name:"山东警察学院", campus:"文东校区", city:"济南", type:"本科", isMain:false, lat:36.6530, lng:117.0420, note:"—", addr:"济南市历下区文化东路54号" },
+
+// --- 山东政法学院 ---
+{ name:"山东政法学院", campus:"主校区", city:"济南", type:"本科", isMain:true,  lat:36.6660, lng:117.0380, note:"政法类", addr:"济南市历下区解放东路63号" },
+
+// --- 齐鲁师范学院 ---
+{ name:"齐鲁师范学院", campus:"章丘校区", city:"济南", type:"本科", isMain:true,  lat:36.6700, lng:117.5800, note:"主校区", addr:"济南市章丘区文博路2号" },
+{ name:"齐鲁师范学院", campus:"历下校区", city:"济南", type:"本科", isMain:false, lat:36.6480, lng:117.0500, note:"—", addr:"济南市历下区历山路36号" },
+
+// --- 山东青年政治学院 ---
+{ name:"山东青年政治学院", campus:"主校区", city:"济南", type:"本科", isMain:true,  lat:36.6900, lng:117.0800, note:"—", addr:"济南市历城区经十东路31699号" },
+
+// --- 山东女子学院 ---
+{ name:"山东女子学院", campus:"长清校区", city:"济南", type:"本科", isMain:true,  lat:36.5550, lng:116.8100, note:"—", addr:"济南市长清区大学路2399号" },
+
+// --- 山东管理学院 ---
+{ name:"山东管理学院", campus:"长清校区", city:"济南", type:"本科", isMain:true,  lat:36.5580, lng:116.8280, note:"—", addr:"济南市长清区丁香路3500号" },
+
+// --- 山东农业工程学院 ---
+{ name:"山东农业工程学院", campus:"济南校区", city:"济南", type:"本科", isMain:true,  lat:36.6800, lng:117.0500, note:"主校区", addr:"济南市历城区农干院路866号" },
+{ name:"山东农业工程学院", campus:"齐河校区", city:"德州", type:"本科", isMain:false, lat:36.7800, lng:116.7700, note:"—", addr:"德州市齐河县" },
+
+// --- 山东体育学院 ---
+{ name:"山东体育学院", campus:"济南校区", city:"济南", type:"本科", isMain:true,  lat:36.6620, lng:117.0850, note:"主校区", addr:"济南市历城区世纪大道10600号" },
+
+// ==================== 济南市 - 公办专科 ====================
+{ name:"山东商业职业技术学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6850, lng:117.0950, note:"财经", addr:"济南市历城区旅游路4516号" },
+{ name:"山东电力高等专科学校", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6500, lng:117.0300, note:"理工", addr:"济南市市中区二环南路500号" },
+{ name:"山东职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6950, lng:117.1200, note:"理工", addr:"济南市历城区经十东路23000号" },
+{ name:"山东劳动职业技术学院", campus:"长清校区", city:"济南", type:"专科", isMain:true,  lat:36.5550, lng:116.7900, note:"理工", addr:"济南市长清区海棠路800号" },
+{ name:"莱芜职业技术学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.2250, lng:117.6700, note:"综合(莱芜区)", addr:"济南市莱芜高新区山财大街1号" },
+{ name:"济南职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6900, lng:117.1000, note:"综合", addr:"济南市历城区旅游路5518号" },
+{ name:"济南工程职业技术学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6750, lng:117.5800, note:"理工", addr:"济南市章丘区经十东路6088号" },
+{ name:"山东电子职业技术学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6720, lng:117.5900, note:"理工", addr:"济南市章丘区文化路888号" },
+{ name:"山东旅游职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6700, lng:117.5950, note:"财经", addr:"济南市章丘区经十东路3556号" },
+{ name:"山东城市建设职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6920, lng:117.1050, note:"理工", addr:"济南市历城区旅游路4657号" },
+{ name:"山东司法警官职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6750, lng:117.0600, note:"政法", addr:"济南市历下区二环东路6997号" },
+{ name:"山东传媒职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6780, lng:117.5700, note:"艺术", addr:"济南市章丘区经十东路8678号" },
+{ name:"济南幼儿师范高等专科学校", campus:"长清校区", city:"济南", type:"专科", isMain:true,  lat:36.5600, lng:116.8350, note:"师范", addr:"济南市长清区大学科技园" },
+{ name:"济南护理职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.6900, lng:117.1150, note:"医药", addr:"济南市历城区港西路3636号" },
+{ name:"山东特殊教育职业学院", campus:"主校区", city:"济南", type:"专科", isMain:true,  lat:36.5580, lng:116.7850, note:"综合", addr:"济南市长清区平安街道" },
+
+// ==================== 青岛市 - 公办本科 ====================
+// --- 中国海洋大学 ---
+{ name:"中国海洋大学", campus:"崂山校区", city:"青岛", type:"本科", isMain:true,  lat:36.0665, lng:120.4975, note:"985/211/双一流 · 主校区", addr:"青岛市崂山区松岭路238号" },
+{ name:"中国海洋大学", campus:"鱼山校区", city:"青岛", type:"本科", isMain:false, lat:36.0615, lng:120.3315, note:"老校区", addr:"青岛市市南区鱼山路5号" },
+{ name:"中国海洋大学", campus:"浮山校区", city:"青岛", type:"本科", isMain:false, lat:36.0765, lng:120.4345, note:"—", addr:"青岛市崂山区香港东路23号" },
+{ name:"中国海洋大学", campus:"西海岸校区", city:"青岛", type:"本科", isMain:false, lat:35.8300, lng:120.0450, note:"新校区", addr:"青岛市黄岛区三沙路1299号" },
+
+// --- 中国石油大学（华东）---
+{ name:"中国石油大学（华东）", campus:"青岛校区", city:"青岛", type:"本科", isMain:true,  lat:35.9423, lng:120.1703, note:"211/双一流", addr:"青岛市黄岛区长江西路66号" },
+
+// --- 青岛大学 ---
+{ name:"青岛大学", campus:"浮山校区", city:"青岛", type:"本科", isMain:true,  lat:36.0720, lng:120.4228, note:"省属重点综合 · 主校区", addr:"青岛市市南区宁夏路308号" },
+{ name:"青岛大学", campus:"金家岭校区", city:"青岛", type:"本科", isMain:false, lat:36.1108, lng:120.4685, note:"—", addr:"青岛市崂山区松岭路93号" },
+{ name:"青岛大学", campus:"松山校区", city:"青岛", type:"本科", isMain:false, lat:36.0805, lng:120.3405, note:"医学部", addr:"青岛市市北区登州路38号" },
+
+// --- 山东科技大学 ---
+{ name:"山东科技大学", campus:"青岛校区", city:"青岛", type:"本科", isMain:true,  lat:36.0019, lng:120.1206, note:"主校区", addr:"青岛市黄岛区前湾港路579号" },
+{ name:"山东科技大学", campus:"济南校区", city:"济南", type:"本科", isMain:false, lat:36.6480, lng:116.9880, note:"—", addr:"济南市天桥区胜利庄路17号" },
+{ name:"山东科技大学", campus:"泰安校区", city:"泰安", type:"本科", isMain:false, lat:36.1750, lng:117.0950, note:"—", addr:"泰安市泰山区岱宗大街223号" },
+
+// --- 青岛科技大学 ---
+{ name:"青岛科技大学", campus:"崂山校区", city:"青岛", type:"本科", isMain:true,  lat:36.1180, lng:120.4781, note:"主校区 · 橡胶特色", addr:"青岛市崂山区松岭路99号" },
+{ name:"青岛科技大学", campus:"四方校区", city:"青岛", type:"本科", isMain:false, lat:36.1495, lng:120.3893, note:"老校区", addr:"青岛市市北区郑州路53号" },
+{ name:"青岛科技大学", campus:"中德校区", city:"青岛", type:"校区", isMain:false, lat:36.0503, lng:120.0873, note:"中德生态园 · 中外合作", addr:"青岛市黄岛区团结路3698号" },
+{ name:"青岛科技大学", campus:"高密校区", city:"潍坊", type:"本科", isMain:false, lat:36.3438, lng:119.7550, note:"—", addr:"潍坊市高密市杏坛西街1号" },
+
+// --- 青岛理工大学 ---
+{ name:"青岛理工大学", campus:"黄岛校区", city:"青岛", type:"本科", isMain:true,  lat:35.9755, lng:120.1770, note:"主校区", addr:"青岛市黄岛区嘉陵江东路777号" },
+{ name:"青岛理工大学", campus:"市北校区", city:"青岛", type:"本科", isMain:false, lat:36.1055, lng:120.3725, note:"老校区", addr:"青岛市市北区抚顺路11号" },
+{ name:"青岛理工大学", campus:"临沂校区", city:"临沂", type:"本科", isMain:false, lat:35.2668, lng:117.9750, note:"—", addr:"临沂市费县东外环路108号" },
+
+// --- 青岛农业大学 ---
+{ name:"青岛农业大学", campus:"城阳校区", city:"青岛", type:"本科", isMain:true,  lat:36.3191, lng:120.3958, note:"主校区", addr:"青岛市城阳区长城路700号" },
+{ name:"青岛农业大学", campus:"平度校区", city:"青岛", type:"本科", isMain:false, lat:36.5571, lng:120.1297, note:"新校区", addr:"青岛市平度市黄海路2-17号" },
+{ name:"青岛农业大学", campus:"蓝谷校区", city:"青岛", type:"本科", isMain:false, lat:36.3383, lng:120.6616, note:"海洋学院", addr:"青岛市即墨区问海路17号" },
+
+// --- 康复大学 ---
+{ name:"康复大学", campus:"主校区", city:"青岛", type:"本科", isMain:true,  lat:36.2565, lng:120.1850, note:"2024年新设", addr:"青岛市高新区" },
+
+// ==================== 青岛市 - 公办专科 ====================
+{ name:"青岛职业技术学院", campus:"主校区", city:"青岛", type:"专科", isMain:true,  lat:35.9900, lng:120.1550, note:"综合", addr:"青岛市黄岛区钱塘江路369号" },
+{ name:"青岛酒店管理职业技术学院", campus:"主校区", city:"青岛", type:"专科", isMain:true,  lat:36.3400, lng:120.4100, note:"财经", addr:"青岛市李沧区九水东路599号" },
+{ name:"山东外贸职业学院", campus:"主校区", city:"青岛", type:"专科", isMain:true,  lat:36.3200, lng:120.4000, note:"财经", addr:"青岛市李沧区巨峰路201号" },
+{ name:"青岛港湾职业技术学院", campus:"主校区", city:"青岛", type:"专科", isMain:true,  lat:35.9600, lng:120.1300, note:"理工", addr:"青岛市黄岛区映山红路316号" },
+{ name:"青岛远洋船员职业学院", campus:"主校区", city:"青岛", type:"专科", isMain:true,  lat:36.0700, lng:120.3240, note:"理工", addr:"青岛市市南区江西路84号" },
+{ name:"青岛工程职业学院", campus:"主校区", city:"青岛", type:"专科", isMain:true,  lat:36.3000, lng:120.2100, note:"理工", addr:"青岛市城阳区" },
+{ name:"青岛幼儿师范高等专科学校", campus:"主校区", city:"青岛", type:"专科", isMain:true,  lat:36.1600, lng:120.1000, note:"师范", addr:"青岛市胶州市" },
+
+// ==================== 烟台市 - 公办本科 ====================
+// --- 烟台大学 ---
+{ name:"烟台大学", campus:"主校区", city:"烟台", type:"本科", isMain:true,  lat:37.4750, lng:121.4650, note:"省属重点综合", addr:"烟台市莱山区清泉路30号" },
+{ name:"烟台大学", campus:"八角湾校区", city:"烟台", type:"本科", isMain:false, lat:37.5800, lng:121.1500, note:"新校区", addr:"烟台市开发区八角湾" },
+
+// --- 鲁东大学 ---
+{ name:"鲁东大学", campus:"主校区", city:"烟台", type:"本科", isMain:true,  lat:37.5200, lng:121.3600, note:"主校区", addr:"烟台市芝罘区红旗中路186号" },
+{ name:"鲁东大学", campus:"蓬莱校区", city:"烟台", type:"本科", isMain:false, lat:37.8100, lng:120.7600, note:"—", addr:"烟台市蓬莱区" },
+
+// --- 山东工商学院 ---
+{ name:"山东工商学院", campus:"主校区", city:"烟台", type:"本科", isMain:true,  lat:37.4780, lng:121.4540, note:"财经类", addr:"烟台市莱山区滨海中路191号" },
+
+// --- 滨州医学院（主校区在烟台）---
+{ name:"滨州医学院", campus:"烟台校区", city:"烟台", type:"本科", isMain:true,  lat:37.4680, lng:121.4480, note:"主校区", addr:"烟台市莱山区观海路346号" },
+{ name:"滨州医学院", campus:"滨州校区", city:"滨州", type:"本科", isMain:false, lat:37.3750, lng:117.9800, note:"—", addr:"滨州市滨城区黄河三路522号" },
+
+// ==================== 烟台市 - 公办专科 ====================
+{ name:"烟台职业学院", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.4600, lng:121.4880, note:"综合", addr:"烟台市莱山区滨海中路2018号" },
+{ name:"烟台工程职业技术学院", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.5550, lng:121.2400, note:"理工", addr:"烟台市福山区珠江路92号" },
+{ name:"烟台汽车工程职业学院", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.4800, lng:121.2000, note:"理工", addr:"烟台市福山区聚贤路1号" },
+{ name:"山东中医药高等专科学校", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.4900, lng:121.4900, note:"医药", addr:"烟台市牟平区滨海东路508号" },
+{ name:"山东商务职业学院", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.4650, lng:121.4800, note:"综合", addr:"烟台市莱山区金海路1001号" },
+{ name:"烟台幼儿师范高等专科学校", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.8100, lng:120.7500, note:"师范", addr:"烟台市蓬莱区" },
+{ name:"烟台文化旅游职业学院", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.5300, lng:121.3800, note:"综合", addr:"烟台市莱山区" },
+{ name:"山东城市服务职业学院", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.4750, lng:121.4700, note:"综合", addr:"烟台市莱山区" },
+{ name:"烟台卫生健康职业学院", campus:"主校区", city:"烟台", type:"专科", isMain:true,  lat:37.4700, lng:121.4600, note:"医药", addr:"烟台市莱山区" },
+
+// ==================== 潍坊市 - 公办本科 ====================
+// --- 山东第二医科大学 ---
+{ name:"山东第二医科大学", campus:"浮烟山校区", city:"潍坊", type:"本科", isMain:true,  lat:36.7150, lng:119.1150, note:"主校区 · 原潍坊医学院", addr:"潍坊市潍城区宝通西街7166号" },
+{ name:"山东第二医科大学", campus:"虞河校区", city:"潍坊", type:"本科", isMain:false, lat:36.7100, lng:119.1200, note:"—", addr:"潍坊市奎文区胜利东街" },
+
+// --- 潍坊学院 ---
+{ name:"潍坊学院", campus:"主校区", city:"潍坊", type:"本科", isMain:true,  lat:36.7050, lng:119.1680, note:"主校区", addr:"潍坊市奎文区东风东街5147号" },
+{ name:"潍坊学院", campus:"安顺校区", city:"潍坊", type:"本科", isMain:false, lat:36.7200, lng:119.0800, note:"—", addr:"潍坊市潍城区卧龙西街" },
+
+// ==================== 潍坊市 - 公办专科 ====================
+{ name:"潍坊职业学院", campus:"滨海校区", city:"潍坊", type:"专科", isMain:true,  lat:36.7300, lng:119.2000, note:"主校区", addr:"潍坊市滨海经济技术开发区" },
+{ name:"山东科技职业学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.7000, lng:119.1300, note:"理工", addr:"潍坊市潍城区西环路6388号" },
+{ name:"山东畜牧兽医职业学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.7100, lng:119.1500, note:"农林", addr:"潍坊市奎文区胜利东街88号" },
+{ name:"山东交通职业学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.6000, lng:119.1800, note:"理工", addr:"潍坊市坊子区潍县中路8号" },
+{ name:"山东信息职业技术学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.7080, lng:119.1750, note:"理工", addr:"潍坊市奎文区东风东街7494号" },
+{ name:"山东经贸职业学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.7050, lng:119.1100, note:"财经", addr:"潍坊市潍城区青年路2799号" },
+{ name:"山东化工职业学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.6500, lng:119.0500, note:"综合", addr:"潍坊市滨海经济技术开发区" },
+{ name:"潍坊护理职业学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.5900, lng:118.7100, note:"医药(青州)", addr:"潍坊市青州市云门山南路9966号" },
+{ name:"潍坊工程职业学院", campus:"主校区", city:"潍坊", type:"专科", isMain:true,  lat:36.6900, lng:118.4800, note:"理工(青州)", addr:"潍坊市青州市云门山南路8979号" },
+
+// ==================== 淄博市 - 公办本科 ====================
+// --- 山东理工大学 ---
+{ name:"山东理工大学", campus:"西校区", city:"淄博", type:"本科", isMain:true,  lat:36.8160, lng:117.9850, note:"主校区", addr:"淄博市张店区新村西路266号" },
+{ name:"山东理工大学", campus:"东校区", city:"淄博", type:"本科", isMain:false, lat:36.8050, lng:118.0500, note:"—", addr:"淄博市张店区共青团西路88号" },
+
+// ==================== 淄博市 - 公办专科 ====================
+{ name:"山东工业职业学院", campus:"主校区", city:"淄博", type:"专科", isMain:true,  lat:36.8400, lng:118.0600, note:"理工", addr:"淄博市高新区张北路69号" },
+{ name:"淄博师范高等专科学校", campus:"主校区", city:"淄博", type:"专科", isMain:true,  lat:36.6200, lng:117.9100, note:"师范", addr:"淄博市淄川经济开发区" },
+{ name:"山东铝业职业学院", campus:"主校区", city:"淄博", type:"专科", isMain:true,  lat:36.8000, lng:117.9700, note:"理工", addr:"淄博市张店区南定镇" },
+{ name:"山东轻工职业学院", campus:"主校区", city:"淄博", type:"专科", isMain:true,  lat:36.7100, lng:117.8600, note:"理工", addr:"淄博市周村区米山路30号" },
+
+// ==================== 威海市 - 公办本科（山东大学威海）====================
+{ name:"山东大学（威海）", campus:"威海校区", city:"威海", type:"本科", isMain:true,  lat:37.5323, lng:122.0582, note:"985/211/双一流", addr:"威海市环翠区文化西路180号" },
+
+// --- 山东交通学院威海校区 ---
+{ name:"山东交通学院", campus:"威海校区", city:"威海", type:"本科", isMain:false, lat:37.4380, lng:122.1150, note:"航海类", addr:"威海市环翠区和兴路1508号" },
+
+// --- 哈尔滨工业大学（威海）是部属分校区，不在此列 ---
+
+// ==================== 威海市 - 公办专科 ====================
+{ name:"威海职业学院", campus:"主校区", city:"威海", type:"专科", isMain:true,  lat:37.4340, lng:122.1070, note:"综合", addr:"威海市高区科技新城" },
+{ name:"山东药品食品职业学院", campus:"主校区", city:"威海", type:"专科", isMain:true,  lat:37.4700, lng:122.0800, note:"医药", addr:"威海市高区科技新城" },
+{ name:"威海海洋职业学院", campus:"主校区", city:"威海", type:"专科", isMain:true,  lat:37.1400, lng:122.4500, note:"综合(荣成)", addr:"威海市荣成市海湾南路1000号" },
+
+// ==================== 日照市 - 公办本科（跨城校区）====================
+{ name:"曲阜师范大学", campus:"日照校区", city:"日照", type:"本科", isMain:false, lat:35.4250, lng:119.5550, note:"—", addr:"日照市东港区烟台路80号" },
+{ name:"济宁医学院", campus:"日照校区", city:"日照", type:"本科", isMain:false, lat:35.4350, lng:119.5500, note:"—", addr:"日照市东港区学苑路669号" },
+{ name:"山东体育学院", campus:"日照校区", city:"日照", type:"本科", isMain:false, lat:35.4200, lng:119.5600, note:"—", addr:"日照市东港区山东路685号" },
+
+// ==================== 日照市 - 公办专科 ====================
+{ name:"日照职业技术学院", campus:"主校区", city:"日照", type:"专科", isMain:true,  lat:35.4400, lng:119.5360, note:"综合", addr:"日照市东港区烟台北路16号" },
+{ name:"山东水利职业学院", campus:"主校区", city:"日照", type:"专科", isMain:true,  lat:35.4450, lng:119.5450, note:"理工", addr:"日照市东港区学苑路677号" },
+
+// ==================== 济宁市 - 公办本科 ====================
+{ name:"曲阜师范大学", campus:"曲阜校区", city:"济宁", type:"本科", isMain:true,  lat:35.6000, lng:116.9850, note:"省属重点师范 · 主校区", addr:"曲阜市静轩西路57号" },
+{ name:"济宁医学院", campus:"济宁校区", city:"济宁", type:"本科", isMain:true,  lat:35.4200, lng:116.5900, note:"主校区", addr:"济宁市任城区荷花路133号" },
+{ name:"济宁学院", campus:"主校区", city:"济宁", type:"本科", isMain:true,  lat:35.5400, lng:116.8500, note:"—", addr:"曲阜市杏坛路1号" },
+
+// ==================== 济宁市 - 公办专科 ====================
+{ name:"济宁职业技术学院", campus:"主校区", city:"济宁", type:"专科", isMain:true,  lat:35.4100, lng:116.5850, note:"综合", addr:"济宁市任城区金宇路77号" },
+{ name:"山东理工职业学院", campus:"主校区", city:"济宁", type:"专科", isMain:true,  lat:35.3800, lng:116.5900, note:"综合", addr:"济宁市任城区荷花路6号" },
+
+// ==================== 泰安市 - 公办本科 ====================
+// --- 山东农业大学 ---
+{ name:"山东农业大学", campus:"岱宗校区", city:"泰安", type:"本科", isMain:true,  lat:36.1954, lng:117.1200, note:"主校区", addr:"泰安市泰山区岱宗大街61号" },
+{ name:"山东农业大学", campus:"泮河校区", city:"泰安", type:"本科", isMain:false, lat:36.1700, lng:117.0800, note:"新校区", addr:"泰安市泰山区泮河大街7号" },
+
+// --- 泰山学院 ---
+{ name:"泰山学院", campus:"主校区", city:"泰安", type:"本科", isMain:true,  lat:36.2040, lng:117.0960, note:"—", addr:"泰安市泰山区东岳大街525号" },
+
+// --- 山东第一医科大学（泰安校区）---
+{ name:"山东第一医科大学", campus:"泰安校区", city:"泰安", type:"本科", isMain:false, lat:36.1900, lng:117.0700, note:"—", addr:"泰安市岱岳区长城路619号" },
+
+// ==================== 泰安市 - 公办专科 ====================
+{ name:"山东服装职业学院", campus:"主校区", city:"泰安", type:"专科", isMain:true,  lat:36.1800, lng:117.0800, note:"综合", addr:"泰安市泰山区天烛峰路299号" },
+{ name:"泰山职业技术学院", campus:"主校区", city:"泰安", type:"专科", isMain:true,  lat:36.2100, lng:117.1000, note:"综合", addr:"泰安市泰山区天烛峰路281号" },
+{ name:"泰山护理职业学院", campus:"主校区", city:"泰安", type:"专科", isMain:true,  lat:36.1850, lng:117.0500, note:"医药", addr:"泰安市岱岳区天平大街25号" },
+
+// ==================== 聊城市 - 公办本科 ====================
+// --- 聊城大学 ---
+{ name:"聊城大学", campus:"东校区", city:"聊城", type:"本科", isMain:true,  lat:36.4550, lng:116.0000, note:"主校区", addr:"聊城市东昌府区湖南路1号" },
+{ name:"聊城大学", campus:"西校区", city:"聊城", type:"本科", isMain:false, lat:36.4600, lng:115.9700, note:"—", addr:"聊城市东昌府区文化路34号" },
+
+// ==================== 聊城市 - 公办专科 ====================
+{ name:"聊城职业技术学院", campus:"主校区", city:"聊城", type:"专科", isMain:true,  lat:36.4600, lng:115.9900, note:"综合", addr:"聊城市花园北路133号" },
+
+// ==================== 德州市 - 公办本科 ====================
+{ name:"德州学院", campus:"主校区", city:"德州", type:"本科", isMain:true,  lat:37.4460, lng:116.3480, note:"—", addr:"德州市德城区大学西路566号" },
+{ name:"德州学院", campus:"东校区", city:"德州", type:"本科", isMain:false, lat:37.4480, lng:116.3700, note:"—", addr:"德州市德城区" },
+
+// ==================== 德州市 - 公办专科 ====================
+{ name:"德州职业技术学院", campus:"主校区", city:"德州", type:"专科", isMain:true,  lat:37.4400, lng:116.3600, note:"综合", addr:"德州市德城区大学东路689号" },
+
+// ==================== 滨州市 - 公办本科 ====================
+{ name:"山东航空学院", campus:"主校区", city:"滨州", type:"本科", isMain:true,  lat:37.3820, lng:117.9700, note:"原滨州学院", addr:"滨州市滨城区黄河五路391号" },
+
+// ==================== 滨州市 - 公办专科 ====================
+{ name:"滨州职业学院", campus:"主校区", city:"滨州", type:"专科", isMain:true,  lat:37.3800, lng:117.9800, note:"综合", addr:"滨州市滨城区黄河十二路919号" },
+
+// ==================== 临沂市 - 公办本科 ====================
+{ name:"临沂大学", campus:"主校区", city:"临沂", type:"本科", isMain:true,  lat:35.1150, lng:118.3100, note:"省属", addr:"临沂市兰山区双岭路中段" },
+{ name:"临沂大学", campus:"沂水校区", city:"临沂", type:"本科", isMain:false, lat:35.7900, lng:118.6300, note:"—", addr:"临沂市沂水县文化路1号" },
+{ name:"临沂大学", campus:"费县校区", city:"临沂", type:"本科", isMain:false, lat:35.2700, lng:117.9700, note:"—", addr:"临沂市费县文化路33号" },
+
+// ==================== 临沂市 - 公办专科 ====================
+{ name:"山东医学高等专科学校", campus:"临沂校区", city:"临沂", type:"专科", isMain:true,  lat:35.0500, lng:118.3400, note:"医药", addr:"临沂市兰山区聚才六路" },
+{ name:"临沂职业学院", campus:"主校区", city:"临沂", type:"专科", isMain:true,  lat:35.0200, lng:118.2900, note:"理工", addr:"临沂市罗庄区湖东路63号" },
+{ name:"临沂科技职业学院", campus:"主校区", city:"临沂", type:"专科", isMain:true,  lat:35.0100, lng:118.3800, note:"综合", addr:"临沂市河东区" },
+
+// ==================== 菏泽市 - 公办本科 ====================
+{ name:"菏泽学院", campus:"主校区", city:"菏泽", type:"本科", isMain:true,  lat:35.2420, lng:115.4910, note:"—", addr:"菏泽市牡丹区大学路2269号" },
+
+// --- 齐鲁工业大学菏泽校区 ---
+{ name:"齐鲁工业大学", campus:"菏泽校区", city:"菏泽", type:"本科", isMain:false, lat:35.2500, lng:115.4800, note:"—", addr:"菏泽市牡丹区" },
+
+// ==================== 菏泽市 - 公办专科 ====================
+{ name:"菏泽医学专科学校", campus:"主校区", city:"菏泽", type:"专科", isMain:true,  lat:35.2400, lng:115.4700, note:"医药", addr:"菏泽市牡丹区大学路1950号" },
+{ name:"菏泽家政职业学院", campus:"主校区", city:"菏泽", type:"专科", isMain:true,  lat:34.8300, lng:115.5600, note:"综合(单县)", addr:"菏泽市单县开发区学院中路" },
+{ name:"菏泽职业学院", campus:"主校区", city:"菏泽", type:"专科", isMain:true,  lat:35.2350, lng:115.4850, note:"综合", addr:"菏泽市牡丹区长城路999号" },
+
+// ==================== 枣庄市 - 公办本科 ====================
+{ name:"枣庄学院", campus:"市中校区", city:"枣庄", type:"本科", isMain:true,  lat:34.8680, lng:117.5560, note:"主校区", addr:"枣庄市市中区北安路1号" },
+{ name:"枣庄学院", campus:"新城校区", city:"枣庄", type:"本科", isMain:false, lat:34.8000, lng:117.3300, note:"新校区", addr:"枣庄市薛城区" },
+
+// ==================== 枣庄市 - 公办专科 ====================
+{ name:"枣庄科技职业学院", campus:"主校区", city:"枣庄", type:"专科", isMain:true,  lat:35.1000, lng:117.1600, note:"综合(滕州)", addr:"枣庄市滕州市学院东路888号" },
+{ name:"枣庄职业学院", campus:"主校区", city:"枣庄", type:"专科", isMain:true,  lat:34.7900, lng:117.5500, note:"理工", addr:"枣庄市薛城区祁连山路2169号" },
+
+// ==================== 东营市 - 公办本科 ====================
+{ name:"山东石油化工学院", campus:"主校区", city:"东营", type:"本科", isMain:true,  lat:37.4380, lng:118.5400, note:"—", addr:"东营市东营区北二路271号" },
+
+// ==================== 东营市 - 公办专科 ====================
+{ name:"东营职业学院", campus:"主校区", city:"东营", type:"专科", isMain:true,  lat:37.4400, lng:118.6600, note:"综合", addr:"东营市东营区府前大街129号" },
+{ name:"山东胜利职业学院", campus:"主校区", city:"东营", type:"专科", isMain:true,  lat:37.4400, lng:118.6400, note:"理工", addr:"东营市东营区" },
+
+// ==== 山东大学青岛校区（重要跨城校区）====
+{ name:"山东大学（青岛）", campus:"青岛校区", city:"青岛", type:"本科", isMain:false, lat:36.3654, lng:120.6878, note:"985/211/双一流", addr:"青岛市即墨区滨海路72号" },
+
+];
+
+// ============================================================
+// STATS
+// ============================================================
+const benkeList   = U.filter(u => u.type === "本科");
+const zhuankeList = U.filter(u => u.type === "专科");
+const specialList = U.filter(u => u.type === "校区");
+document.getElementById("count-benke").textContent  = benkeList.length;
+document.getElementById("count-zhuanke").textContent = zhuankeList.length;
+document.getElementById("count-total").textContent   = U.length;
+
+// ============================================================
+// MAP
+// ============================================================
+const map = L.map("map", { center: [36.1, 118.05], zoom: 7, zoomControl: true });
+
+const gaodeTile = L.tileLayer("https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}", {
+    subdomains: "1234", attribution: "&copy; <a href='https://www.amap.com/'>高德地图</a>", maxZoom: 18,
+});
+const osmTile = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    subdomains: "abc", attribution: "&copy; <a href='https://www.openstreetmap.org/'>OpenStreetMap</a>", maxZoom: 19,
+});
+gaodeTile.addTo(map);
+
+L.control.layers({ "高德地图 (推荐)": gaodeTile, "OpenStreetMap": osmTile }, null, { position: "topleft" }).addTo(map);
+
+// ============================================================
+// MARKERS
+// ============================================================
+const markerCluster = L.markerClusterGroup({
+    maxClusterRadius: 38,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    zoomToBoundsOnClick: true,
+    disableClusteringAtZoom: 14,
+});
+
+const allMarkers = [];
+
+function getMarkerColor(type) {
+    if (type === "本科") return "#3388ff";
+    if (type === "校区") return "#e74c3c";
+    return "#2ecc71"; // 专科
+}
+
+function createCustomIcon(color, size, type) {
+    const borderColor = type === "校区" ? "#c0392b" : (type === "本科" ? "#2563d6" : "#27ae60");
+    const glow = type === "校区" ? "0 0 10px rgba(231,76,60,0.7)" : "0 2px 6px rgba(0,0,0,0.25)";
+    return L.divIcon({
+        className: "custom-marker",
+        html: `<div style="width:${size*2}px;height:${size*2}px;background:${color};border:3px solid ${borderColor};border-radius:50%;box-shadow:${glow};cursor:pointer;transition:transform 0.15s;"></div>`,
+        iconSize: [size*2, size*2], iconAnchor: [size, size], popupAnchor: [0, -size],
+    });
+}
+
+function createPopup(uni) {
+    const showName = uni.campus ? `${uni.name}（${uni.campus}）` : uni.name;
+    const typeLabel = uni.type === "本科" ? "公办本科" : uni.type === "专科" ? "公办专科" : "分校区";
+    const typeClass = uni.type === "本科" ? "popup-type-benke" : uni.type === "专科" ? "popup-type-zhuanke" : "popup-type-zhongde";
+    const noteHtml = uni.note ? `<div style="color:#888;font-size:12px;margin-top:2px;">${uni.note}</div>` : "";
+    const addrHtml = uni.addr ? `<div style="color:#555;font-size:12px;margin-top:2px;">📍 ${uni.addr}</div>` : "";
+    const mainTag = uni.isMain ? "" : ` <span style="font-size:10px;color:#999;">(分校区)</span>`;
+    return `<div class="popup-name">${showName}${mainTag}</div>
+            <div class="popup-city">${uni.city}市</div>
+            <span class="popup-type ${typeClass}">${typeLabel}</span>${noteHtml}${addrHtml}`;
+}
+
+U.forEach((uni) => {
+    const color = getMarkerColor(uni.type);
+    const size  = uni.type === "校区" ? 13 : (uni.isMain ? 11 : 8);
+    const icon  = createCustomIcon(color, size, uni.type);
+    const marker = L.marker([uni.lat, uni.lng], { icon });
+    marker.bindPopup(createPopup(uni));
+    marker.university = uni;
+    markerCluster.addLayer(marker);
+    allMarkers.push({ marker, university: uni });
+});
+
+map.addLayer(markerCluster);
+const bounds = L.latLngBounds([34.5, 114.8], [38.0, 122.8]);
+map.fitBounds(bounds);
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+const sidebar = document.getElementById("sidebar"), sidebarToggle = document.getElementById("sidebarToggle");
+const searchInput = document.getElementById("searchInput"), resultList = document.getElementById("resultList");
+const cityFiltersEl = document.getElementById("cityFilters"), clearCityBtn = document.getElementById("clearCity");
+const typeFiltersEl = document.getElementById("typeFilters");
+let activeType = null, activeCity = null, searchQuery = "";
+
+// City list
+const cities = [...new Set(U.map(u => u.city))].sort();
+cities.forEach(city => {
+    const chip = document.createElement("span");
+    chip.className = "city-chip"; chip.textContent = city;
+    chip.addEventListener("click", () => {
+        if (activeCity === city) { activeCity = null; cityFiltersEl.querySelectorAll(".city-chip").forEach(c => c.classList.remove("active")); }
+        else { activeCity = city; cityFiltersEl.querySelectorAll(".city-chip").forEach(c => c.classList.remove("active")); chip.classList.add("active"); }
+        applyFilters();
+    });
+    cityFiltersEl.appendChild(chip);
+});
+clearCityBtn.addEventListener("click", (e) => { e.preventDefault(); activeCity = null; cityFiltersEl.querySelectorAll(".city-chip").forEach(c => c.classList.remove("active")); applyFilters(); });
+
+// Type filter
+typeFiltersEl.addEventListener("click", (e) => {
+    const chip = e.target.closest(".type-chip"); if (!chip) return;
+    chip.classList.toggle("active-benke"); chip.classList.toggle("active-zhuanke");
+    const benkeActive = typeFiltersEl.querySelector('[data-type="benke"]').classList.contains("active-benke");
+    const zhuankeActive = typeFiltersEl.querySelector('[data-type="zhuanke"]').classList.contains("active-zhuanke");
+    if (benkeActive && zhuankeActive) activeType = null;
+    else if (benkeActive) activeType = "benke";
+    else if (zhuankeActive) activeType = "zhuanke";
+    else { typeFiltersEl.querySelector('[data-type="benke"]').classList.add("active-benke"); typeFiltersEl.querySelector('[data-type="zhuanke"]').classList.add("active-zhuanke"); activeType = null; }
+    applyFilters();
+});
+
+searchInput.addEventListener("input", () => { searchQuery = searchInput.value.trim().toLowerCase(); applyFilters(); });
+
+function matchesType(uni) {
+    if (activeType === null) return true;
+    if (activeType === "benke") return uni.type === "本科" || uni.type === "校区";
+    if (activeType === "zhuanke") return uni.type === "专科";
+    return true;
+}
+
+function applyFilters() {
+    const filtered = U.filter(uni => {
+        if (activeCity && uni.city !== activeCity) return false;
+        if (!matchesType(uni)) return false;
+        if (searchQuery) {
+            const showName = uni.campus ? `${uni.name}（${uni.campus}）` : uni.name;
+            if (!showName.toLowerCase().includes(searchQuery) && !uni.city.toLowerCase().includes(searchQuery) && !(uni.campus && uni.campus.toLowerCase().includes(searchQuery))) return false;
+        }
+        return true;
+    });
+    renderList(filtered);
+    updateMarkers(filtered);
+}
+
+function renderList(filtered) {
+    resultList.innerHTML = "";
+    if (filtered.length === 0) { resultList.innerHTML = '<div class="no-results">😕 没有找到匹配的院校</div>'; return; }
+    const cnt = document.createElement("div");
+    cnt.style.cssText = "padding:4px 12px 8px;font-size:11px;color:#7f8fa6;"; cnt.textContent = `共 ${filtered.length} 个标记点`;
+    resultList.appendChild(cnt);
+    filtered.forEach(uni => {
+        const item = document.createElement("div"); item.className = "result-item";
+        let bc = "badge-benke", bt = "本科"; if (uni.type === "专科") { bc = "badge-zhuanke"; bt = "专科"; } if (uni.type === "校区") { bc = "badge-zhongde"; bt = "校区"; }
+        const showName = uni.campus ? `${uni.name}·${uni.campus}` : uni.name;
+        const subTag = uni.isMain ? "" : ` <span style="font-size:10px;color:#888;">分校区</span>`;
+        item.innerHTML = `<span class="badge ${bc}">${bt}</span><div class="info"><div class="name">${showName}${subTag}</div><div class="city">${uni.city}市${uni.addr?" · "+uni.addr:""}</div></div>`;
+        item.addEventListener("click", () => {
+            map.flyTo([uni.lat, uni.lng], 15, { duration: 0.8 });
+            const found = allMarkers.find(m => m.university === uni);
+            if (found) setTimeout(() => found.marker.openPopup(), 900);
+        });
+        resultList.appendChild(item);
+    });
+}
+
+function updateMarkers(filtered) {
+    const fs = new Set(filtered);
+    markerCluster.clearLayers();
+    allMarkers.forEach(({ marker, university }) => { if (fs.has(university)) markerCluster.addLayer(marker); });
+}
+
+applyFilters();
+
+// Sidebar toggle
+let sidebarOpen = true;
+sidebarToggle.addEventListener("click", () => {
+    sidebarOpen = !sidebarOpen;
+    if (sidebarOpen) { sidebar.classList.remove("collapsed"); sidebarToggle.textContent = "◀"; sidebarToggle.style.left = "360px"; }
+    else { sidebar.classList.add("collapsed"); sidebarToggle.textContent = "▶"; sidebarToggle.style.left = "0"; }
+    setTimeout(() => map.invalidateSize(), 350);
+});
+window.addEventListener("resize", () => map.invalidateSize());
+
+console.log("✅ 山东省高校地图加载完成 (含各校区)！");
+console.log(`   总标记: ${U.length} | 本科: ${benkeList.length} | 专科: ${zhuankeList.length} | 特标: ${specialList.length}`);
+})();
+</script>
+</body>
+</html>
